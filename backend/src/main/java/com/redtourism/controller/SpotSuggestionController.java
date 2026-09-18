@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.redtourism.common.Constants;
 import com.redtourism.common.Result;
+import com.redtourism.common.SpotSuggestionFields;
 import com.redtourism.entity.ScenicSpot;
 import com.redtourism.entity.SpotSuggestion;
 import com.redtourism.entity.User;
@@ -37,28 +38,23 @@ public class SpotSuggestionController {
         User user = (User) session.getAttribute(Constants.SESSION_USER);
         if (user == null) return Result.error(401, "请先登录");
         ScenicSpot spot = spotService.getById(spotId);
+        if (spot == null) return Result.error("景点不存在");
+        if (!SpotSuggestionFields.isSupported(fieldName)) {
+            return Result.error("不支持的更正字段：" + fieldName);
+        }
+        if (newValue == null || newValue.trim().isEmpty()) {
+            return Result.error("更正内容不能为空");
+        }
         SpotSuggestion s = new SpotSuggestion();
         s.setUserId(user.getId());
         s.setSpotId(spotId);
-        s.setSpotName(spot != null ? spot.getName() : "");
+        s.setSpotName(spot.getName());
         s.setFieldName(fieldName);
-        s.setNewValue(newValue);
+        s.setNewValue(newValue.trim());
         s.setReason(reason);
         s.setStatus("PENDING");
         s.setCreateTime(new Date());
-        String oldVal = "";
-        if (spot != null) {
-            switch (fieldName) {
-                case "name": oldVal = spot.getName(); break;
-                case "description": oldVal = spot.getDescription(); break;
-                case "location": oldVal = spot.getLocation(); break;
-                case "openTime": oldVal = spot.getOpenTime(); break;
-                case "ticketPrice": oldVal = spot.getTicketPrice() != null ? spot.getTicketPrice().toString() : ""; break;
-                case "trafficInfo": oldVal = spot.getTrafficInfo(); break;
-                default: oldVal = "";
-            }
-        }
-        s.setOldValue(oldVal);
+        s.setOldValue(SpotSuggestionFields.currentValue(spot, fieldName));
         mapper.insert(s);
         return Result.success("更正建议已提交，等待管理员审核", null);
     }

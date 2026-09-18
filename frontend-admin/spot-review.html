@@ -98,6 +98,9 @@ renderSidebar();
 
 let currentPage = 1;
 
+const FIELD_LABELS = {name:'景点名称',description:'景点描述',location:'地址',region:'所属地区',theme:'内容分类',openTime:'开放时间',ticketPrice:'门票价格',trafficInfo:'交通信息',longitude:'地图经度',latitude:'地图纬度',ticketReservation:'门票预约',suggestedDuration:'建议停留',itemsToBring:'随身物品提醒'};
+function fieldLabel(f) { return FIELD_LABELS[f] || f || ''; }
+
 async function load(page) {
     currentPage = page || currentPage;
     const status = document.getElementById('statusFilter').value;
@@ -122,7 +125,7 @@ async function load(page) {
         const statusLabel = {PENDING:'待审核',APPROVED:'已通过',REJECTED:'已驳回'}[r.status] || r.status || '待审核';
         return `<div class="review-card">
             <div class="review-header">
-                <div class="review-name">${escHtml(r.spotName || '景点')} · ${escHtml(r.fieldName || '')}</div>
+                <div class="review-name">${escHtml(r.spotName || '景点')} · ${escHtml(fieldLabel(r.fieldName))}</div>
                 <span class="status-badge st-${r.status||'PENDING'}">${statusLabel}</span>
             </div>
             <div class="review-meta">

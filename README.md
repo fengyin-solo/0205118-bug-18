@@ -159,7 +159,7 @@ docker compose up --build -d
 ### 景点信息更正
 | 端点 | 说明 |
 |------|------|
-| `GET /api/spotSuggestion/submit?spotId=&fieldName=&newValue=&reason=` | 提交更正建议（fieldName: name/description/location/openTime/ticketPrice/trafficInfo） |
+| `GET /api/spotSuggestion/submit?spotId=&fieldName=&newValue=&reason=` | 提交更正建议（fieldName: name/description/location/region/theme/openTime/ticketPrice/trafficInfo/longitude/latitude/ticketReservation/suggestedDuration/itemsToBring） |
 | `GET /api/spotSuggestion/my` | 我的更正建议列表 |
 
 ### 管理端（需 ADMIN 或 STAFF 角色）
