@@ -56,6 +56,8 @@ public class AdminController {
     private com.redtourism.mapper.SpotSuggestionMapper spotSuggestionMapper;
     @Autowired
     private com.redtourism.mapper.ServiceChatMapper chatMapper;
+    @Autowired
+    private com.redtourism.service.SpotSuggestionService spotSuggestionService;
 
     // ==================== 用户管理 ====================
 
@@ -641,50 +643,22 @@ public class AdminController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "15") int size,
             @RequestParam(required = false) String status) {
-        com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SpotSuggestion> w =
-                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<>();
-        if (status != null && !status.isEmpty()) w.eq(SpotSuggestion::getStatus, status);
-        else w.eq(SpotSuggestion::getStatus, "PENDING");
-        w.orderByDesc(SpotSuggestion::getCreateTime);
-        IPage<SpotSuggestion> result = spotSuggestionMapper.selectPage(
-                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(page, size), w);
-        result.getRecords().forEach(r -> {
-            User u = userMapper.selectById(r.getUserId());
-            if (u != null) r.setUsername(u.getNickname() != null ? u.getNickname() : u.getUsername());
-        });
-        return Result.success(result);
+        // 排序、字段中文名、景点当前值、是否最早待处理均在服务层统一填充
+        return Result.success(spotSuggestionService.listForReview(page, size, status));
     }
 
     @GetMapping("/spotSuggestion/approve")
     public Result<String> approveSpotSuggestion(@RequestParam Long id) {
-        SpotSuggestion s = spotSuggestionMapper.selectById(id);
-        if (s == null) return Result.error("不存在");
-        s.setStatus("APPROVED");
-        spotSuggestionMapper.updateById(s);
-        ScenicSpot spot = spotService.getById(s.getSpotId());
-        if (spot != null) {
-            switch (s.getFieldName()) {
-                case "name": spot.setName(s.getNewValue()); break;
-                case "description": spot.setDescription(s.getNewValue()); break;
-                case "location": spot.setLocation(s.getNewValue()); break;
-                case "openTime": spot.setOpenTime(s.getNewValue()); break;
-                case "ticketPrice": try { spot.setTicketPrice(new BigDecimal(s.getNewValue())); } catch(Exception e){} break;
-                case "trafficInfo": spot.setTrafficInfo(s.getNewValue()); break;
-                case "ticketReservation": spot.setTicketReservation(s.getNewValue()); break;
-                case "suggestedDuration": spot.setSuggestedDuration(s.getNewValue()); break;
-                case "itemsToBring": spot.setItemsToBring(s.getNewValue()); break;
-            }
-            spotService.updateById(spot);
-        }
-        messageService.sendMessage(s.getUserId(), "您的景点更正建议已通过",
-                "您提交的关于【" + s.getSpotName() + "】" + s.getFieldName() + "的更正已被采纳，感谢您的贡献！");
-        return Result.success("已通过并应用", null);
+        // 应用失败（格式非法/景点不存在/有更早的同字段待处理建议）时抛异常，
+        // 全局异常处理返回具体原因；建议保持 PENDING，允许修正后重试
+        return Result.success(spotSuggestionService.approve(id), null);
     }
 
     @GetMapping("/spotSuggestion/reject")
     public Result<String> rejectSpotSuggestion(@RequestParam Long id, @RequestParam String reason) {
         SpotSuggestion s = spotSuggestionMapper.selectById(id);
         if (s == null) return Result.error("不存在");
+        if (!"PENDING".equals(s.getStatus())) return Result.error("该建议已处理，请勿重复操作");
         s.setStatus("REJECTED");
         s.setRejectReason(reason);
         spotSuggestionMapper.updateById(s);

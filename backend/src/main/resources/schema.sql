@@ -281,7 +281,8 @@ CREATE TABLE IF NOT EXISTS spot_suggestion (
     status VARCHAR(20) DEFAULT 'PENDING' COMMENT 'PENDING|APPROVED|REJECTED',
     reject_reason TEXT,
     create_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_status (status)
+    INDEX idx_status (status),
+    INDEX idx_spot_field_status (spot_id, field_name, status, create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 人工客服对话

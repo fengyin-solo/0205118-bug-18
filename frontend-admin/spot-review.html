@@ -20,6 +20,8 @@
         .st-PENDING{background:#fff7e6;color:#d48806}
         .st-APPROVED{background:#f6ffed;color:#52c41a}
         .st-REJECTED{background:#fff1f0;color:#ff4d4f}
+        .review-current{font-size:12px;color:#1890ff;background:#e6f7ff;border-radius:4px;padding:4px 10px;margin-bottom:8px}
+        .order-hint{font-size:12px;color:#d48806;background:#fff7e6;border-radius:4px;padding:4px 10px;margin-bottom:8px}
         .filter-bar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
         .filter-bar select{padding:7px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:13px}
         .badge-count{background:#ff4d4f;color:#fff;border-radius:10px;padding:1px 8px;font-size:11px;margin-left:6px}
@@ -68,6 +70,7 @@
                         <option value="">全部</option>
                     </select>
                     <button class="btn btn-primary btn-sm" onclick="load(currentPage)"><i class="fas fa-sync"></i> 刷新</button>
+                    <span style="font-size:12px;color:#888">待处理建议按提交时间从早到晚排列；同字段的重复建议需先处理更早的一条；通过时校验格式，失败的建议保留待处理、可重试。</span>
                 </div>
                 <div id="listWrap"><div class="loading"><i class="fas fa-spinner fa-spin"></i></div></div>
                 <div class="pagination" id="pagination"></div>
@@ -120,20 +123,30 @@ async function load(page) {
 
     wrap.innerHTML = records.map(r => {
         const statusLabel = {PENDING:'待审核',APPROVED:'已通过',REJECTED:'已驳回'}[r.status] || r.status || '待审核';
+        // 字段中文名由后端统一返回，避免字段与其他列表项错位
+        const fieldLabel = r.fieldLabel || r.fieldName || '';
+        // 待处理建议的“旧值”已被更早的同字段建议更新时，提示景点当前值
+        const showCurrent = r.status === 'PENDING' && r.currentValue !== undefined
+            && r.currentValue !== null && r.currentValue !== (r.oldValue || '')
+            && r.currentValue !== '';
+        const blocked = r.status === 'PENDING' && r.earliestPending === false;
         return `<div class="review-card">
             <div class="review-header">
-                <div class="review-name">${escHtml(r.spotName || '景点')} · ${escHtml(r.fieldName || '')}</div>
+                <div class="review-name">${escHtml(r.spotName || '景点')} · ${escHtml(fieldLabel)}</div>
                 <span class="status-badge st-${r.status||'PENDING'}">${statusLabel}</span>
             </div>
             <div class="review-meta">
                 <span><i class="fas fa-user"></i> ${escHtml(r.username||'--')}</span>
                 <span><i class="fas fa-clock"></i> ${formatDate(r.createTime)}</span>
             </div>
+            ${showCurrent ? `<div class="review-current"><i class="fas fa-info-circle"></i> 景点当前值已是：${escHtml(r.currentValue)}（早于本条的同字段更正已生效）</div>` : ''}
+            ${blocked ? `<div class="order-hint"><i class="fas fa-sort-amount-down"></i> 同字段存在更早提交的待处理建议，请先处理更早的一条</div>` : ''}
             <div class="review-diff">
                 <span class="old">${escHtml(r.oldValue || '-')}</span>
                 <span><i class="fas fa-arrow-right"></i></span>
-                <span class="new">${escHtml(r.newValue || '-')}</span>
+                <span class="new">${escHtml(r.newValue || '（空，应用后保留原值）')}</span>
             </div>
+            ${!r.newValue ? `<div style="font-size:12px;color:#888;margin-bottom:4px"><i class="fas fa-minus-circle"></i> 新内容为空，通过后该字段将保留原值</div>` : ''}
             ${r.reason ? `<div style="font-size:12px;color:#666;margin-bottom:8px"><i class="fas fa-comment-dots"></i> 用户说明：${escHtml(r.reason)}</div>` : ''}
             ${r.rejectReason ? `<div style="font-size:12px;color:#ff4d4f"><i class="fas fa-times-circle"></i> 驳回原因：${escHtml(r.rejectReason)}</div>` : ''}
             ${r.status === 'PENDING' ? `
@@ -148,10 +161,29 @@ async function load(page) {
 }
 
 async function doApprove(id) {
-    showConfirm('确定通过该更正建议并应用到景点信息？', async () => {
-        const res = await api(`/api/admin/spotSuggestion/approve?id=${id}`);
-        if (res !== null) { showToast('已通过'); load(currentPage); }
+    showConfirm('确定通过该更正建议并应用到景点信息？格式不合法或存在更早的同字段待处理建议时将无法通过。', async () => {
+        const res = await apiRaw(`/api/admin/spotSuggestion/approve?id=${id}`);
+        if (res.ok) {
+            showToast(res.data && res.data.msg ? res.data.msg : '已通过');
+            load(currentPage);
+        } else {
+            // 后端给出的具体无效项/顺序原因直接展示；建议仍为待处理，可重试
+            showToast(res.msg || '通过失败，建议保留待处理', 'error');
+            load(currentPage);
+        }
     });
+}
+
+// 与 admin-common.js 的 api 相同的请求封装，但不吞掉错误消息
+async function apiRaw(path) {
+    try {
+        const res = await fetch(API + path, { credentials: 'include' });
+        const data = await res.json();
+        if (data.code === 401) { showToast('请先登录', 'error'); setTimeout(() => location.href = 'login.html', 1000); return {ok:false, msg:'请先登录'}; }
+        return { ok: data.code === 200, msg: data.msg, data };
+    } catch (e) {
+        return { ok: false, msg: '网络异常，请稍后重试' };
+    }
 }
 
 function openReject(id) {

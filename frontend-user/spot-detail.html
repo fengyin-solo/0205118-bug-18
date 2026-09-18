@@ -247,12 +247,15 @@
         <h3 style="margin-bottom:16px"><i class="fas fa-edit" style="color:var(--red)"></i> 提交信息更正建议</h3>
         <div class="form-group" style="margin-bottom:12px">
             <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">更正字段</label>
-            <select id="sugField" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--r);padding-right:36px">
+            <select id="sugField" onchange="onSuggestFieldChange()" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--r);padding-right:36px">
                 <option value="name">景点名称</option>
                 <option value="description">景点描述</option>
+                <option value="region">地区</option>
+                <option value="theme">内容分类</option>
                 <option value="location">地址</option>
                 <option value="openTime">开放时间</option>
                 <option value="ticketPrice">门票价格</option>
+                <option value="coordinates">地图坐标（经度,纬度）</option>
                 <option value="trafficInfo">交通信息</option>
                 <option value="ticketReservation">门票预约</option>
                 <option value="suggestedDuration">建议停留</option>
@@ -260,8 +263,14 @@
             </select>
         </div>
         <div class="form-group" style="margin-bottom:12px">
-            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">正确内容</label>
+            <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">正确内容（留空提交将保留原值）</label>
             <textarea id="sugValue" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:var(--r);height:80px;resize:vertical" placeholder="请输入您认为正确的信息…"></textarea>
+            <div id="sugCoordWrap" style="display:none;gap:10px">
+                <input type="number" step="any" id="sugLng" placeholder="经度，如 106.7135" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:var(--r)">
+                <input type="number" step="any" id="sugLat" placeholder="纬度，如 27.7254" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:var(--r)">
+            </div>
+            <div id="sugCurrent" style="font-size:12px;color:#888;margin-top:6px"></div>
+            <div id="sugHint" style="font-size:12px;color:#fa8c16;margin-top:4px"></div>
         </div>
         <div class="form-group" style="margin-bottom:16px">
             <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">更正原因（可选）</label>
@@ -541,20 +550,79 @@ function openSpotFeedback() {
 function openSuggestionModal() {
     if (!getUser()) { showToast('请先登录', 'error'); setTimeout(() => location.href = 'login.html', 1000); return; }
     document.getElementById('sugValue').value = '';
+    document.getElementById('sugLng').value = '';
+    document.getElementById('sugLat').value = '';
     document.getElementById('sugReason').value = '';
+    onSuggestFieldChange();
     document.getElementById('suggestModal').classList.add('show');
 }
 function closeSuggestionModal() { document.getElementById('suggestModal').classList.remove('show'); }
 
+// 各字段当前值，打开更正框时预填展示，避免用户对着旧值提交
+function currentFieldValue(field) {
+    if (!spotData) return '';
+    if (field === 'coordinates') {
+        return (spotData.longitude != null && spotData.latitude != null)
+            ? (spotData.longitude + ',' + spotData.latitude) : '';
+    }
+    return spotData[field] != null ? String(spotData[field]) : '';
+}
+
+function onSuggestFieldChange() {
+    const field = document.getElementById('sugField').value;
+    const isCoord = field === 'coordinates';
+    document.getElementById('sugValue').style.display = isCoord ? 'none' : 'block';
+    document.getElementById('sugCoordWrap').style.display = isCoord ? 'flex' : 'none';
+    const cur = currentFieldValue(field);
+    document.getElementById('sugCurrent').textContent = cur ? ('当前值：' + cur) : '';
+    const hints = {
+        ticketPrice: '请填写数字，单位为元，免费可填 0',
+        coordinates: '请分别填写经度与纬度（贵州约为东经 103~110、北纬 24~30）',
+        region: '如：遵义市、贵阳市',
+        theme: '如：革命遗址、纪念馆、战役遗址、伟人故居'
+    };
+    document.getElementById('sugHint').textContent = hints[field] || '';
+}
+
+// 前端先行校验，与后端规则保持一致；具体无效项在提示中指出
+function validateSuggestion(field, val) {
+    if (field === 'ticketPrice') {
+        if (val === '') return null; // 空值保留原值
+        if (!/^\d+(\.\d{1,2})?$/.test(val)) return '门票价格必须是数字（最多两位小数），单位为元';
+        if (parseFloat(val) < 0) return '门票价格不能为负数';
+    } else if (field === 'coordinates') {
+        if (val === '') return null;
+        const parts = val.split(',');
+        if (parts.length !== 2 || isNaN(parseFloat(parts[0])) || isNaN(parseFloat(parts[1]))) {
+            return '地图坐标格式应为“经度,纬度”，例如：106.71,27.72';
+        }
+        const lng = parseFloat(parts[0]), lat = parseFloat(parts[1]);
+        if (lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+            return '地图坐标超出有效范围（经度 -180~180，纬度 -90~90）';
+        }
+    }
+    return null;
+}
+
 async function submitSuggestion() {
     const field = document.getElementById('sugField').value;
-    const val = document.getElementById('sugValue').value.trim();
-    if (!val) { showToast('请输入正确内容', 'warning'); return; }
+    let val;
+    if (field === 'coordinates') {
+        const lng = document.getElementById('sugLng').value.trim();
+        const lat = document.getElementById('sugLat').value.trim();
+        if (lng && lat) val = lng + ',' + lat;
+        else if (!lng && !lat) val = ''; // 两者都空视为不修改、保留原值
+        else { showToast('地图坐标需同时填写经度和纬度', 'warning'); return; }
+    } else {
+        val = document.getElementById('sugValue').value.trim();
+    }
+    const err = validateSuggestion(field, val);
+    if (err) { showToast(err, 'warning'); return; }
     const reason = document.getElementById('sugReason').value.trim();
     let url = '/api/spotSuggestion/submit?spotId=' + spotId + '&fieldName=' + field + '&newValue=' + encodeURIComponent(val);
     if (reason) url += '&reason=' + encodeURIComponent(reason);
     const res = await api(url);
-    if (res !== null) { closeSuggestionModal(); showToast('更正建议已提交，感谢您的贡献！'); }
+    if (res !== null) { closeSuggestionModal(); showToast(val ? '更正建议已提交，感谢您的贡献！' : '内容为空，应用时将保留原值'); }
 }
 
 selectStar(5);
